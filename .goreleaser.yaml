@@ -1,0 +1,154 @@
+# goreleaser config for bbm.
+#
+# Triggered by `.github/workflows/release.yml` on `git push origin vX.Y.Z`:
+#   1. Cross-compiles `cmd/bbm` for darwin/linux/windows × amd64/arm64 (+ linux/armv7).
+#   2. Tarballs each binary with LICENSE + README.md alongside.
+#   3. Computes checksums.txt over all archives.
+#   4. Creates the GitHub release with all artifacts attached.
+#   5. Renders Formula/bbm.rb pointing at the per-platform tarballs and
+#      pushes it to j4y-w4lk3r/homebrew-bbm (auth via HOMEBREW_TAP_GITHUB_TOKEN).
+#   6. Renders bbm-bin AUR PKGBUILD + .SRCINFO and pushes to
+#      ssh://aur@aur.archlinux.org/bbm-bin.git (auth via AUR_SSH_PRIVATE_KEY).
+#
+# Local dry-run (no publish, builds in dist/):
+#   goreleaser release --snapshot --clean
+# Local single-arch build (fastest sanity check):
+#   goreleaser build --snapshot --clean --single-target
+
+version: 2
+
+project_name: bbm
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: bbm
+    main: ./cmd/bbm
+    binary: bbm
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .Date }}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      # Pi 2/3, most Cortex-A SBCs. v6 (Pi 1, Pi Zero) too rare to bother.
+      - "7"
+    ignore:
+      # darwin/arm doesn't exist (Apple is arm64-only).
+      - goos: darwin
+        goarch: arm
+      # Skip 32-bit + 64-bit Windows ARM (audience essentially zero today).
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: bbm
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    # Format examples:
+    #   bbm_0.1.0_Darwin_arm64.tar.gz
+    #   bbm_0.1.0_Linux_armv7.tar.gz
+    #   bbm_0.1.0_Windows_x86_64.zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if and (eq .Arch "arm") (eq .Arm "7") }}armv7
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+      - config.example.toml
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - 'merge conflict'
+      - '(?i)^typo'
+
+# Auto-publishes the formula to j4y-w4lk3r/homebrew-bbm. Requires repo
+# secret HOMEBREW_TAP_GITHUB_TOKEN (fine-grained PAT with Contents:read+
+# write on j4y-w4lk3r/homebrew-bbm). Same PAT covers homebrew-rui and
+# homebrew-ykw — see the matching note in those repos' .goreleaser.yaml.
+brews:
+  - name: bbm
+    directory: Formula
+    repository:
+      owner: j4y-w4lk3r
+      name: homebrew-bbm
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/j4y-w4lk3r/bbm"
+    description: "Backblaze B2 manager: focused CLI for the bu encrypted-bundle workflow (S3-compatible, Wasabi/R2-ready)"
+    license: "MIT"
+    commit_author:
+      name: bbm-release-bot
+      email: bbm-release-bot@users.noreply.github.com
+    commit_msg_template: "bbm: bump to {{ .Tag }}"
+    test: |
+      system "#{bin}/bbm", "-v"
+    install: |
+      bin.install "bbm"
+
+# Auto-publishes the AUR package `bbm-bin` to aur.archlinux.org on every
+# release. Pulls the linux/amd64 archive that the builds:/archives:
+# stages already produce, generates a PKGBUILD + .SRCINFO referencing it
+# by URL+SHA256, and pushes via SSH using the AUR_SSH_PRIVATE_KEY secret.
+aurs:
+  - name: bbm-bin
+    homepage: "https://github.com/j4y-w4lk3r/bbm"
+    description: "Backblaze B2 manager: focused CLI for the bu encrypted-bundle workflow (S3-compatible)"
+    maintainers:
+      - "j4y <j4y_w4lk3r@pobox.com>"
+    license: "MIT"
+    private_key: '{{ .Env.AUR_SSH_PRIVATE_KEY }}'
+    git_url: "ssh://aur@aur.archlinux.org/bbm-bin.git"
+    skip_upload: false
+    provides:
+      - bbm
+    conflicts:
+      - bbm
+      - bbm-git
+    depends:
+      - glibc
+    optdepends:
+      - '1password-cli: resolve op:// references in config.toml at runtime'
+      - 'gnupg: bbm push --encrypt shells out to ykw which shells out to gpg'
+      - 'ykw: ergonomic --encrypt path uses ykw encrypt'
+    commit_author:
+      name: bbm-release-bot
+      email: bbm-release-bot@users.noreply.github.com
+    commit_msg_template: "bbm-bin: bump to {{ .Tag }}"
+    package: |-
+      install -Dm755 "./bbm" "${pkgdir}/usr/bin/bbm"
+      install -Dm644 "./LICENSE"            "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+      install -Dm644 "./README.md"          "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+      install -Dm644 "./config.example.toml" "${pkgdir}/usr/share/doc/${pkgname}/config.example.toml"

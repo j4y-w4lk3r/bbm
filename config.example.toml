@@ -1,0 +1,43 @@
+# bbm configuration — copy to ~/.config/bbm/config.toml and chmod 600.
+#
+# Cascade: CLI flags > process env > this file. The first non-empty wins
+# per-field, so you can leave any field blank here and override at the
+# command line or via env vars.
+
+# Provider preset. Only "b2" is wired in v0.1.0; "wasabi", "r2", and "s3"
+# are accepted as aliases for known endpoint defaults but the storage
+# layer is S3-compatible end-to-end so they should Just Work — the v0.1.0
+# label only means "I haven't personally tested those yet."
+provider = "b2"
+
+# S3 endpoint. Required for B2/Wasabi/R2; leave empty for AWS S3 proper.
+#
+# B2:     https://s3.<region>.backblazeb2.com   (e.g. us-west-002)
+# Wasabi: https://s3.<region>.wasabisys.com     (e.g. us-east-1)
+# R2:     https://<account-id>.r2.cloudflarestorage.com
+endpoint = "https://s3.us-west-002.backblazeb2.com"
+
+# S3 region. B2 uses the bucket's region (us-west-002 etc); R2 uses
+# "auto"; Wasabi uses "us-east-1" / etc; AWS uses its real region.
+region = "us-west-002"
+
+# Bucket name. Single-bucket setups are the norm — multi-bucket UX can
+# come later if anyone asks.
+bucket = "my-bucket"
+
+# Application key ID. For B2: the "keyID" half of an Application Key
+# (NOT the master account ID). For Wasabi/R2/S3: an access key ID.
+# Plaintext is fine — this is the public half.
+key_id = "K000000000000000000000"
+
+# Application key (the secret). Two ways to populate:
+#
+#   (1) Plaintext value here. File MUST be chmod 600. Fine for personal
+#       boxes, low-stakes buckets.
+#
+#   (2) An "op://" reference, resolved at runtime via the 1Password CLI.
+#       The secret never lands on disk. Recommended for laptops and any
+#       machine where the bucket grants write access to the bu bundle.
+#
+#       Example:  app_key = "op://Personal/Backblaze/credential"
+app_key = "op://Personal/Backblaze/credential"

@@ -1,0 +1,48 @@
+# Maintainer: j4y <j4y_w4lk3r@pobox.com>
+#
+# bbm-bin — Backblaze B2 manager (focused CLI for the bu encrypted-bundle
+# workflow; S3-compatible end-to-end so it works with Wasabi/R2 too).
+#
+# Binary package: pulls the prebuilt linux-x86_64 tarball that goreleaser
+# attaches to every GitHub release. No Go toolchain needed at install time.
+# A future `bbm` (source) package can build from source for arm64-on-Arch
+# or non-glibc users; until then this covers ~99% of Arch users.
+#
+# Release flow:
+#   1. `git tag vX.Y.Z && git push origin vX.Y.Z`
+#   2. .github/workflows/release.yml runs goreleaser, which uploads
+#      bbm_X.Y.Z_Linux_x86_64.tar.gz to the release AND auto-pushes the
+#      AUR bump (via the goreleaser `aurs:` block + AUR_SSH_PRIVATE_KEY).
+#   3. arch/aur-bump.sh exists as a manual fallback in case the goreleaser
+#      AUR push ever needs a re-run.
+
+pkgname=bbm-bin
+_pkgname=bbm
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Backblaze B2 manager: focused CLI for the bu encrypted-bundle workflow (S3-compatible)"
+arch=('x86_64')
+url="https://github.com/j4y-w4lk3r/bbm"
+license=('MIT')
+depends=('glibc')
+optdepends=(
+    '1password-cli: resolve op:// references in config.toml at runtime'
+    'gnupg: bbm push --encrypt shells out to ykw which shells out to gpg'
+    'ykw: ergonomic --encrypt path uses ykw encrypt'
+)
+provides=("${_pkgname}")
+conflicts=("${_pkgname}" "${_pkgname}-git")
+
+# Replaced per release by `arch/aur-bump.sh`.
+source=("${_pkgname}-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/${_pkgname}_${pkgver}_Linux_x86_64.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "${srcdir}"
+
+    install -Dm755 "${_pkgname}" "${pkgdir}/usr/bin/${_pkgname}"
+
+    install -Dm644 LICENSE             "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    install -Dm644 README.md           "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    install -Dm644 config.example.toml "${pkgdir}/usr/share/doc/${pkgname}/config.example.toml"
+}

@@ -1,0 +1,17 @@
+# Local config — never committed. config.example.toml ships in the repo.
+config.toml
+*.config.toml
+
+# Binary artefact at repo root: `go build` drops it here. Anchored to root
+# so it doesn't accidentally match cmd/bbm/.
+/bbm
+*.exe
+
+# goreleaser snapshot/release output. Re-created on every build.
+/dist/
+
+# Local credential staging that nobody should ever leak.
+*.b2-creds
+*.b2-credentials
+
+.DS_Store
