@@ -162,6 +162,75 @@ func (b *S3Backend) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// CreateBucket implements Backend.CreateBucket. Maps "BucketAlreadyExists"
+// and "BucketAlreadyOwnedByYou" to the storage.ErrBucketExists sentinel
+// so the CLI can offer a friendlier message; everything else falls
+// through to the generic AWS-error wrapper.
+//
+// `region == "" || region == "us-east-1"` skips the
+// CreateBucketConfiguration block, which mirrors the AWS S3 quirk:
+// us-east-1 is the only region where you MUST NOT specify a
+// LocationConstraint. For B2 / Wasabi / R2 the region argument always
+// matters and we always send it.
+func (b *S3Backend) CreateBucket(ctx context.Context, name, region string) error {
+	in := &s3.CreateBucketInput{Bucket: aws.String(name)}
+	if region != "" && region != "us-east-1" {
+		in.CreateBucketConfiguration = &types.CreateBucketConfiguration{
+			LocationConstraint: types.BucketLocationConstraint(region),
+		}
+	}
+	_, err := b.client.CreateBucket(ctx, in)
+	if err != nil {
+		var ae smithy.APIError
+		if errors.As(err, &ae) {
+			switch ae.ErrorCode() {
+			case "BucketAlreadyExists", "BucketAlreadyOwnedByYou":
+				return ErrBucketExists
+			}
+		}
+		return wrapAWSErr("create bucket "+name, err)
+	}
+	return nil
+}
+
+// ListBuckets implements Backend.ListBuckets. S3 ListBuckets is an
+// account-level call so the configured bucket is irrelevant.
+func (b *S3Backend) ListBuckets(ctx context.Context) ([]Bucket, error) {
+	out, err := b.client.ListBuckets(ctx, &s3.ListBucketsInput{})
+	if err != nil {
+		return nil, wrapAWSErr("list buckets", err)
+	}
+	buckets := make([]Bucket, 0, len(out.Buckets))
+	for _, ob := range out.Buckets {
+		bk := Bucket{}
+		if ob.Name != nil {
+			bk.Name = *ob.Name
+		}
+		if ob.CreationDate != nil {
+			bk.CreatedAt = *ob.CreationDate
+		}
+		buckets = append(buckets, bk)
+	}
+	return buckets, nil
+}
+
+// DeleteBucket implements Backend.DeleteBucket. Maps the "BucketNotEmpty"
+// error code to the storage.ErrBucketNotEmpty sentinel so the CLI can
+// suggest `bbm rm` first.
+func (b *S3Backend) DeleteBucket(ctx context.Context, name string) error {
+	_, err := b.client.DeleteBucket(ctx, &s3.DeleteBucketInput{
+		Bucket: aws.String(name),
+	})
+	if err != nil {
+		var ae smithy.APIError
+		if errors.As(err, &ae) && ae.ErrorCode() == "BucketNotEmpty" {
+			return ErrBucketNotEmpty
+		}
+		return wrapAWSErr("delete bucket "+name, err)
+	}
+	return nil
+}
+
 // wrapAWSErr unwraps the verbose smithy-go OperationError chain into
 // something a CLI user can read at 80 columns, while still preserving
 // the original via errors.Unwrap for programmatic callers.

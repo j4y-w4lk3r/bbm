@@ -11,6 +11,7 @@
 //	bbm push [--encrypt] FILE     upload (--encrypt pipes through `ykw encrypt`)
 //	bbm cat KEY                   stream an object to stdout
 //	bbm rm [--yes] KEY            delete an object
+//	bbm bucket <create|list|delete>  account-level bucket admin
 //
 // Global flags (BEFORE the subcommand name):
 //
@@ -114,6 +115,8 @@ func main() {
 		err = command.RunCat(g, subArgs)
 	case "rm", "delete":
 		err = command.RunRm(g, subArgs)
+	case "bucket":
+		err = command.RunBucket(g, subArgs)
 	case "help":
 		printUsage(os.Stdout)
 		return
@@ -148,6 +151,7 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "  push [--encrypt] FILE upload a file (optionally GPG-encrypted via ykw)")
 	fmt.Fprintln(w, "  cat KEY               stream an object to stdout")
 	fmt.Fprintln(w, "  rm [--yes] KEY        delete an object")
+	fmt.Fprintln(w, "  bucket <verb> ...     account-level admin (create | list | delete)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Global flags:")
 	fmt.Fprintln(w, "  -c PATH               config file (default: $XDG_CONFIG_HOME/bbm/config.toml)")

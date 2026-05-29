@@ -54,12 +54,15 @@ bbm ls
 ## Usage
 
 ```text
-bbm init                      interactively write ~/.config/bbm/config.toml
-bbm ls [PREFIX]               list objects in the bucket
-bbm pull KEY [DEST]           download an object
-bbm push [--encrypt] FILE     upload (--encrypt pipes through `ykw encrypt`)
-bbm cat KEY                   stream an object to stdout
-bbm rm [--yes] KEY            delete an object
+bbm init                          interactively write ~/.config/bbm/config.toml
+bbm ls [PREFIX]                   list objects in the bucket
+bbm pull KEY [DEST]               download an object
+bbm push [--encrypt] FILE         upload (--encrypt pipes through `ykw encrypt`)
+bbm cat KEY                       stream an object to stdout
+bbm rm [--yes] KEY                delete an object
+bbm bucket create NAME            create a new bucket (account-level)
+bbm bucket list                   list every bucket the credentials see
+bbm bucket delete [--yes] NAME    delete an EMPTY bucket
 ```
 
 ### Examples
@@ -77,6 +80,14 @@ bbm push --encrypt secret.txt bu/secret.txt
 
 # Pipe out of bbm straight into gpg
 bbm cat bu/secret.txt.gpg | gpg -d
+
+# Account-level bucket admin (handy for one-shot encrypted backups —
+# spin up a dedicated bucket, push the blob, retire it later)
+bbm bucket list
+bbm bucket create j4y-backup-2026-q2
+bbm --bucket j4y-backup-2026-q2 push --encrypt big-archive.tar j4y-backup-2026-q2/big-archive.tar.gpg
+bbm --bucket j4y-backup-2026-q2 rm j4y-backup-2026-q2/big-archive.tar.gpg
+bbm bucket delete --yes j4y-backup-2026-q2
 ```
 
 ## Configuration
