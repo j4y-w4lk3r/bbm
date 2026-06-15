@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -37,6 +36,15 @@ type Config struct {
 	Bucket   string `toml:"bucket"`
 	KeyID    string `toml:"key_id"`
 	AppKey   string `toml:"app_key"`
+	// Admin holds optional credentials with writeBuckets (bucket create/delete).
+	// When set, `bbm bucket` uses these instead of the main key.
+	Admin *AdminConfig `toml:"admin"`
+}
+
+// AdminConfig is an optional second B2 application key (account-level).
+type AdminConfig struct {
+	KeyID  string `toml:"key_id"`
+	AppKey string `toml:"app_key"`
 }
 
 // ErrNoConfig is returned by Load when no config.toml exists in any of
@@ -103,15 +111,47 @@ func Load(configPath string, ov Overrides) (*Config, error) {
 		return nil, fmt.Errorf("missing 'endpoint' in %s — required for provider=%q", source, cfg.Provider)
 	}
 
-	if strings.HasPrefix(cfg.AppKey, "op://") {
-		resolved, err := resolveOpRef(cfg.AppKey)
-		if err != nil {
-			return nil, fmt.Errorf("resolve %q: %w", cfg.AppKey, err)
-		}
-		cfg.AppKey = resolved
+	if err := resolveConfigSecrets(cfg); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
+}
+
+func resolveConfigSecrets(cfg *Config) error {
+	if strings.HasPrefix(cfg.AppKey, "op://") {
+		resolved, err := ResolveSecret(cfg.AppKey)
+		if err != nil {
+			return fmt.Errorf("resolve %q: %w", cfg.AppKey, err)
+		}
+		cfg.AppKey = resolved
+	}
+	if cfg.Admin != nil && strings.HasPrefix(cfg.Admin.AppKey, "op://") {
+		resolved, err := ResolveSecret(cfg.Admin.AppKey)
+		if err != nil {
+			return fmt.Errorf("resolve admin %q: %w", cfg.Admin.AppKey, err)
+		}
+		cfg.Admin.AppKey = resolved
+	}
+	return nil
+}
+
+// AccountCredentials returns key material for account-level bucket admin.
+// Falls back to the main key when no [admin] block is configured.
+func (c *Config) AccountCredentials() (keyID, appKey string) {
+	if c.Admin != nil && c.Admin.KeyID != "" && c.Admin.AppKey != "" {
+		return c.Admin.KeyID, c.Admin.AppKey
+	}
+	return c.KeyID, c.AppKey
+}
+
+// CloneWithCredentials returns a copy using alternate key material (same endpoint/region/bucket).
+func (c *Config) CloneWithCredentials(keyID, appKey string) *Config {
+	out := *c
+	out.KeyID = keyID
+	out.AppKey = appKey
+	out.Admin = nil
+	return &out
 }
 
 // Candidates returns the list of locations Load will search, for use in
@@ -234,20 +274,3 @@ func applyProviderDefaults(cfg *Config) {
 	}
 }
 
-// resolveOpRef shells out to `op read <ref>` to fetch a secret. Returns
-// the trimmed value or an explanatory error. Designed to be a drop-in
-// replacement anywhere a literal app key is expected.
-func resolveOpRef(ref string) (string, error) {
-	if _, err := exec.LookPath("op"); err != nil {
-		return "", fmt.Errorf("1Password CLI (`op`) not found on PATH; install it or use a literal app_key")
-	}
-	out, err := exec.Command("op", "read", ref).Output()
-	if err != nil {
-		// op writes the actual error to stderr; surface it.
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("op read %s: %s", ref, strings.TrimSpace(string(exitErr.Stderr)))
-		}
-		return "", fmt.Errorf("op read %s: %w", ref, err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}

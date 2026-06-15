@@ -5,7 +5,7 @@
 //
 // Subcommands:
 //
-//	bbm init                      interactively write ~/.config/bbm/config.toml
+//	bbm init [--from-op]          write ~/.config/bbm/config.toml
 //	bbm ls [PREFIX]               list objects
 //	bbm pull KEY [DEST]           download an object
 //	bbm push [--encrypt] FILE     upload (--encrypt pipes through `ykw encrypt`)

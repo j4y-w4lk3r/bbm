@@ -81,7 +81,7 @@ func runBucketCreate(g *Globals, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	b, cfg, err := loadBackend(ctx, g)
+	b, cfg, err := loadAccountBackend(ctx, g)
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func runBucketList(g *Globals, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	b, _, err := loadBackend(ctx, g)
+	b, _, err := loadAccountBackend(ctx, g)
 	if err != nil {
 		return err
 	}
@@ -173,7 +173,7 @@ func runBucketDelete(g *Globals, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	b, _, err := loadBackend(ctx, g)
+	b, _, err := loadAccountBackend(ctx, g)
 	if err != nil {
 		return err
 	}

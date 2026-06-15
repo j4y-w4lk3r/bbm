@@ -40,21 +40,28 @@ go install ./cmd/bbm
 ## First run
 
 ```bash
+# If you store B2 keys in 1Password (recommended):
+bbm init --from-op
+
+# Or walk through prompts manually:
 bbm init
 ```
 
-Walks through the config interactively and writes `~/.config/bbm/config.toml` (mode 600). For the `app_key` field, paste either a literal value or an `op://` reference (e.g. `op://Personal/Backblaze/credential`) — the latter resolves at runtime via the [1Password CLI](https://developer.1password.com/docs/cli/) so the secret never lands on disk.
+`--from-op` scans 1Password for Backblaze items, picks your daily ops key (e.g. `bu bundle`) and an optional admin key with `writeBuckets` (e.g. `k4i`), then writes `~/.config/bbm/config.toml` with `op://` references — secrets resolve at runtime via the [1Password CLI](https://developer.1password.com/docs/cli/).
+
+For interactive init, paste either a literal `app_key` or an `op://` reference when prompted.
 
 Verify with:
 
 ```bash
 bbm ls
+bbm bucket list    # uses [admin] key when configured
 ```
 
 ## Usage
 
 ```text
-bbm init                          interactively write ~/.config/bbm/config.toml
+bbm init [--from-op]               write ~/.config/bbm/config.toml
 bbm ls [PREFIX]                   list objects in the bucket
 bbm pull KEY [DEST]               download an object
 bbm push [--encrypt] FILE         upload (--encrypt pipes through `ykw encrypt`)
@@ -89,6 +96,26 @@ bbm --bucket j4y-backup-2026-q2 push --encrypt big-archive.tar j4y-backup-2026-q
 bbm --bucket j4y-backup-2026-q2 rm j4y-backup-2026-q2/big-archive.tar.gpg
 bbm bucket delete --yes j4y-backup-2026-q2
 ```
+
+## Yazi integration
+
+The [`plugins/bbm.yazi`](./plugins/bbm.yazi/) plugin adds one-click workflows inside [Yazi](https://yazi-rs.github.io/):
+
+| Key | Action |
+|-----|--------|
+| `bb` | Browse your B2 bucket in a modal UI (`bbm ls`) |
+| `bp` | Tar a directory (if needed), `bbm push --encrypt` |
+| `bP` | `ykw decrypt` a `.gpg` file (+ auto-extract tarballs) |
+
+Install:
+
+```bash
+ln -sfn ~/px/x-j4y/bbm/plugins/bbm.yazi ~/.config/yazi/plugins/bbm.yazi
+```
+
+See [plugins/bbm.yazi/README.md](./plugins/bbm.yazi/README.md) for keymap snippets and browser keybindings.
+
+Native S3 VFS (`cd s3://...`) is not in stable Yazi yet — the browser plugin is the interim solution.
 
 ## Configuration
 

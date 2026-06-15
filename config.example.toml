@@ -41,3 +41,12 @@ key_id = "K000000000000000000000"
 #
 #       Example:  app_key = "op://Personal/Backblaze/credential"
 app_key = "op://Personal/Backblaze/credential"
+
+# Optional second key for account-level bucket admin (`bbm bucket`).
+# When present, `bbm bucket create|list|delete` uses these credentials
+# instead of the main key above. Handy when your ops key is scoped to
+# one bucket but you keep a separate key with writeBuckets.
+#
+# [admin]
+# key_id  = "K000000000000000000001"
+# app_key = "op://Personal/Backblaze Admin/password"

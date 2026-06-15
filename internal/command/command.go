@@ -43,6 +43,22 @@ func loadBackend(ctx context.Context, g *Globals) (storage.Backend, *config.Conf
 	return b, cfg, nil
 }
 
+// loadAccountBackend uses [admin] credentials when configured, for
+// account-level calls like bucket create/list/delete.
+func loadAccountBackend(ctx context.Context, g *Globals) (storage.Backend, *config.Config, error) {
+	cfg, err := config.Load(g.ConfigPath, g.Overrides)
+	if err != nil {
+		return nil, nil, err
+	}
+	keyID, appKey := cfg.AccountCredentials()
+	adminCfg := cfg.CloneWithCredentials(keyID, appKey)
+	b, err := storage.NewS3(ctx, adminCfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return b, cfg, nil
+}
+
 // HumanSize formats a byte count for `bbm ls`. Mirrors `du -h`-style
 // output: 1023 → "1023", 1024 → "1.0K", 1536 → "1.5K", and so on.
 func HumanSize(n int64) string {
