@@ -74,6 +74,8 @@ This is the closest thing to "B2 as a Yazi remote" today.
 
 Press `bb` and a **popup overlay** opens on top of Yazi. You navigate with `j/k/h/l` inside the popup; your underlying cwd does not change. Listings come from `bbm ls`. Good for a quick peek without mounting.
 
+**Bucket picker:** the browser opens on a bucket list (`bbm bucket list`). Press `l`/`Enter` to enter a bucket, `h` at the bucket root to go back to the list, `B` to switch buckets anytime. Inside a bucket, `h` navigates up through prefixes as usual.
+
 ## Actions
 
 | Key | Action |

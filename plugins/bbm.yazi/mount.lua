@@ -1,7 +1,14 @@
 local M = {}
 local lib = require(".lib")
 
-local LABEL = "com.j4y.rclone-j4y-bu"
+local LABEL = "com.j4y.rclone-lsybb0"
+
+local function service_label(cfg)
+	if cfg and cfg.label and cfg.label ~= "" then
+		return cfg.label
+	end
+	return LABEL
+end
 
 local function expand(path)
 	if path:sub(1, 1) == "~" then
@@ -24,13 +31,14 @@ local function mount_alive(path)
 	return status.success
 end
 
-local function kickstart_service()
+local function kickstart_service(cfg)
 	local out = Command("id"):arg("-u"):stdout(Command.PIPED):stderr(Command.PIPED):output()
 	local uid = out and (out.stdout or ""):gsub("%s+", "") or ""
 	if uid == "" then
 		return false
 	end
-	Command("launchctl"):arg({ "kickstart", "-k", "gui/" .. uid .. "/" .. LABEL }):status()
+	local label = service_label(cfg)
+	Command("launchctl"):arg({ "kickstart", "-k", "gui/" .. uid .. "/" .. label }):status()
 	return true
 end
 
@@ -67,7 +75,7 @@ function M._run(state, job)
 	if not mount_alive(root) then
 		lib.log("mount: not alive, kickstarting launchd")
 		state.notify(state.notify_title, "Starting B2 mount…", "info")
-		kickstart_service()
+		kickstart_service(cfg)
 	end
 
 	for i = 1, 25 do

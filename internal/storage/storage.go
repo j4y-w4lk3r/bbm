@@ -76,9 +76,10 @@ type Backend interface {
 	Delete(ctx context.Context, key string) error
 
 	// CreateBucket creates a new bucket. If region is empty, the
-	// backend's default region is used. Returns ErrBucketExists when
+	// backend's default region is used. encrypt enables default SSE-B2
+	// on B2 (no-op on other providers). Returns ErrBucketExists when
 	// the name is already taken.
-	CreateBucket(ctx context.Context, name, region string) error
+	CreateBucket(ctx context.Context, name, region string, encrypt bool) error
 
 	// ListBuckets returns every bucket the credentials can see. The
 	// list is global to the account, not scoped to the configured

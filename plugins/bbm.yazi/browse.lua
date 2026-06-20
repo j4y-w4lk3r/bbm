@@ -2,7 +2,8 @@
 
 local lib = require(".lib")
 
-local LOADING = { { name = "(loading bucket listing…)", kind = "empty", key = "" } }
+local LOADING = { { name = "(loading…)", kind = "empty", key = "" } }
+local BUCKETS_LOADING = { { name = "(loading buckets…)", kind = "empty", key = "" } }
 
 local M = {
 	keys = {
@@ -13,6 +14,7 @@ local M = {
 		{ on = "j", run = "down" },
 		{ on = "l", run = "enter" },
 		{ on = "h", run = "back" },
+		{ on = "B", run = "buckets" },
 		{ on = "<Up>", run = "up" },
 		{ on = "<Down>", run = "down" },
 		{ on = "<Right>", run = "enter" },
@@ -50,13 +52,41 @@ function M:layout(area)
 	self._area = chunks[2]
 end
 
+function M.fetch_buckets(self)
+	lib.log("fetch_buckets: start")
+	local started = os.clock()
+	local output, err = lib.bbm_cmd(self, { "bucket", "list" }, { no_bucket = true })
+		:stdout(Command.PIPED)
+		:stderr(Command.PIPED)
+		:output()
+	local elapsed = os.clock() - started
+
+	if not output then
+		lib.log("fetch_buckets: no output in " .. string.format("%.2fs: %s", elapsed, tostring(err)))
+		return nil, tostring(err)
+	end
+
+	lib.log(string.format(
+		"fetch_buckets: done in %.2fs exit=%s",
+		elapsed,
+		tostring(output.status.code)
+	))
+
+	if not output.status.success then
+		local msg = output.stderr or ("exit " .. tostring(output.status.code))
+		return nil, msg
+	end
+
+	return M.parse_buckets(output.stdout or ""), nil
+end
+
 function M.fetch_ls(self, prefix)
 	local args = { "ls", "--limit", "5000" }
 	if prefix ~= "" then
 		args[#args + 1] = prefix
 	end
 
-	lib.log("fetch_ls: start prefix=" .. tostring(prefix))
+	lib.log("fetch_ls: bucket=" .. tostring(self.bucket) .. " prefix=" .. tostring(prefix))
 	local started = os.clock()
 
 	local output, err = lib.bbm_cmd(self, args):stdout(Command.PIPED):stderr(Command.PIPED):output()
@@ -93,17 +123,34 @@ function M:redraw()
 	end
 
 	local rows = {}
-	for _, e in ipairs(self.entries or {}) do
-		if e.kind == "dir" then
-			rows[#rows + 1] = ui.Row({ e.name, "", "dir", "" })
-		elseif e.kind == "error" or e.kind == "empty" then
-			rows[#rows + 1] = ui.Row({ e.name, "", "", "" })
-		else
-			rows[#rows + 1] = ui.Row({ e.name, e.size or "", "file", e.ts or "" })
+	local header = { "Name", "Size", "Type", "Modified" }
+	local title
+
+	if self.mode == "buckets" then
+		title = "B2 buckets  (B=refresh list, j/k/l=navigate)"
+		header = { "Bucket", "", "Created", "" }
+		for _, e in ipairs(self.entries or {}) do
+			if e.kind == "bucket" then
+				rows[#rows + 1] = ui.Row({ e.name, "", e.ts or "", "bucket" })
+			elseif e.kind == "error" or e.kind == "empty" then
+				rows[#rows + 1] = ui.Row({ e.name, "", "", "" })
+			end
+		end
+	else
+		local bucket = self.bucket or "?"
+		local path = self.prefix == "" and "/" or self.prefix
+		title = "B2: " .. bucket .. ":" .. path .. "  (B=buckets, h=back)"
+		for _, e in ipairs(self.entries or {}) do
+			if e.kind == "dir" then
+				rows[#rows + 1] = ui.Row({ e.name, "", "dir", "" })
+			elseif e.kind == "error" or e.kind == "empty" then
+				rows[#rows + 1] = ui.Row({ e.name, "", "", "" })
+			else
+				rows[#rows + 1] = ui.Row({ e.name, e.size or "", "file", e.ts or "" })
+			end
 		end
 	end
 
-	local title = "B2: " .. (self.prefix == "" and "/" or self.prefix)
 	return {
 		ui.Clear(self._area),
 		ui.Border(ui.Edge.ALL)
@@ -113,7 +160,7 @@ function M:redraw()
 			:title(ui.Line(title):align(ui.Align.CENTER)),
 		ui.Table(rows)
 			:area(self._area:pad(ui.Pad(1, 2, 1, 2)))
-			:header(ui.Row({ "Name", "Size", "Type", "Modified" }):style(ui.Style():bold()))
+			:header(ui.Row(header):style(ui.Style():bold()))
 			:row(self.cursor or 0)
 			:row_style(ui.Style():fg("blue"):underline())
 			:widths({
@@ -123,6 +170,23 @@ function M:redraw()
 				ui.Constraint.Percentage(30),
 			}),
 	}
+end
+
+function M.parse_buckets(stdout)
+	local entries = {}
+	for line in stdout:gmatch("[^\r\n]+") do
+		local ts, name = line:match("^(%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d)%s+(%S+)$")
+		if name then
+			entries[#entries + 1] = { name = name, key = name, ts = ts, kind = "bucket" }
+		end
+	end
+	table.sort(entries, function(a, b)
+		return a.name < b.name
+	end)
+	if #entries == 0 then
+		entries[1] = { name = "(no buckets)", kind = "empty", key = "" }
+	end
+	return entries
 end
 
 function M.parse_ls(prefix, stdout)
@@ -175,4 +239,4 @@ function M:scroll() end
 
 function M:touch() end
 
-return { M = M, LOADING = LOADING }
+return { M = M, LOADING = LOADING, BUCKETS_LOADING = BUCKETS_LOADING }

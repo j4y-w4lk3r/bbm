@@ -44,7 +44,7 @@ func RunBucket(g *Globals, args []string) error {
 func printBucketUsage(w *os.File) {
 	fmt.Fprintln(w, "Usage: bbm bucket <create|list|delete> [args...]")
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "  bucket create NAME [--region R]   create a new bucket")
+	fmt.Fprintln(w, "  bucket create NAME [--region R] [--no-encrypt]")
 	fmt.Fprintln(w, "  bucket list                       list buckets the credentials can see")
 	fmt.Fprintln(w, "  bucket delete [--yes] NAME        delete an EMPTY bucket")
 	fmt.Fprintln(w, "")
@@ -61,14 +61,15 @@ func printBucketUsage(w *os.File) {
 func runBucketCreate(g *Globals, args []string) error {
 	fs := flag.NewFlagSet("bucket create", flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "Usage: bbm bucket create NAME [--region R]")
+		fmt.Fprintln(fs.Output(), "Usage: bbm bucket create NAME [--region R] [--no-encrypt]")
 		fmt.Fprintln(fs.Output(), "")
-		fmt.Fprintln(fs.Output(), "Create a new bucket with the configured credentials. If --region")
-		fmt.Fprintln(fs.Output(), "is omitted, the region from the bbm config is used.")
+		fmt.Fprintln(fs.Output(), "Create a new bucket with the configured credentials. B2 buckets")
+		fmt.Fprintln(fs.Output(), "get default SSE-B2 encryption unless --no-encrypt is passed.")
 		fmt.Fprintln(fs.Output(), "")
 		fs.PrintDefaults()
 	}
 	region := fs.String("region", "", "region for the new bucket (default: same as bbm config)")
+	noEncrypt := fs.Bool("no-encrypt", false, "skip enabling default SSE-B2 on B2")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -90,13 +91,17 @@ func runBucketCreate(g *Globals, args []string) error {
 		r = cfg.Region
 	}
 
-	if err := b.CreateBucket(ctx, name, r); err != nil {
+	if err := b.CreateBucket(ctx, name, r, !*noEncrypt); err != nil {
 		if errors.Is(err, storage.ErrBucketExists) {
 			return fmt.Errorf("bucket %q already exists (you may already own it — try `bbm bucket list`)", name)
 		}
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "created bucket %q in region %q\n", name, r)
+	if *noEncrypt {
+		fmt.Fprintf(os.Stderr, "created bucket %q in region %q\n", name, r)
+	} else {
+		fmt.Fprintf(os.Stderr, "created bucket %q in region %q (SSE-B2 default encryption)\n", name, r)
+	}
 	return nil
 }
 

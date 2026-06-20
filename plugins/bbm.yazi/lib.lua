@@ -75,8 +75,13 @@ function M.log_error(ctx, err)
 	end
 end
 
-function M.bbm_cmd(state, args)
-	return Command(M.bbm_bin(state))
+function M.bbm_cmd(state, args, opts)
+	opts = opts or {}
+	local cmd = Command(M.bbm_bin(state))
+	if state and state.bucket and not opts.no_bucket then
+		cmd = cmd:arg({ "--bucket", state.bucket })
+	end
+	return cmd
 		:arg(args)
 		:env("PATH", M.path_env())
 		:env("HOME", os.getenv("HOME") or "")

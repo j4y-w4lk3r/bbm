@@ -7,12 +7,15 @@ local pull = require(".pull")
 
 local Browse = browse_pkg.M
 local BROWSE_LOADING = browse_pkg.LOADING
+local BUCKETS_LOADING = browse_pkg.BUCKETS_LOADING
+local BROWSE_BUCKETS = "__buckets__"
 
 -- Modal UI lives on M (returned plugin table), same as mount.yazi.
 -- Yazi's Modal looks up :redraw/:layout via raw fields on the host table.
 M.keys = Browse.keys
 M.permit = Browse.permit
 M.fetch_ls = Browse.fetch_ls
+M.fetch_buckets = Browse.fetch_buckets
 M.parse_ls = Browse.parse_ls
 for name, fn in pairs(Browse) do
 	if type(fn) == "function" and name ~= "fetch_ls" and name ~= "parse_ls" then
@@ -51,11 +54,14 @@ local apply_config = ya.sync(function(st, opts)
 	if opts.rclone_bin then
 		st.rclone_bin = opts.rclone_bin
 	end
+	if opts.default_bucket then
+		st.default_bucket = opts.default_bucket
+	end
 	if opts.mount then
 		st.mount = opts.mount
 	end
 
-	st.prefix = st.prefix or "bu/"
+	st.prefix = st.prefix or ""
 	st.browse_prefix = st.browse_prefix or st.prefix
 	st.notify_title = st.notify_title or "bbm"
 
@@ -69,12 +75,13 @@ end)
 
 local get_config = ya.sync(function(st)
 	return {
-		prefix = st.prefix or "bu/",
-		browse_prefix = st.browse_prefix or st.prefix or "bu/",
+		prefix = st.prefix or "",
+		browse_prefix = st.browse_prefix or st.prefix or "",
 		notify_title = st.notify_title or "bbm",
 		bbm_bin = st.bbm_bin,
 		rclone_bin = st.rclone_bin,
 		mount = st.mount,
+		default_bucket = st.default_bucket,
 	}
 end)
 
@@ -86,12 +93,13 @@ end
 
 local function plugin_state(st)
 	return {
-		prefix = st.prefix or "bu/",
-		browse_prefix = st.browse_prefix or st.prefix or "bu/",
+		prefix = st.prefix or "",
+		browse_prefix = st.browse_prefix or st.prefix or "",
 		notify_title = st.notify_title or "bbm",
 		bbm_bin = st.bbm_bin,
 		rclone_bin = st.rclone_bin,
 		mount = st.mount,
+		default_bucket = st.default_bucket,
 		notify = M.notify,
 	}
 end
@@ -137,6 +145,24 @@ local get_cwd = ya.sync(function()
 	return tostring(cx.active.current.cwd)
 end)
 
+local update_mode = ya.sync(function(_st, mode)
+	M.mode = mode
+	ui.render()
+end)
+
+local update_bucket_name = ya.sync(function(_st, bucket)
+	M.bucket = bucket
+	ui.render()
+end)
+
+local function browse_request_buckets(fetch_tx)
+	lib.log("request_buckets")
+	update_mode("buckets")
+	update_prefix("")
+	update_entries(BUCKETS_LOADING)
+	fetch_tx:send(BROWSE_BUCKETS)
+end
+
 local function browse_request_fetch(prefix, fetch_tx)
 	lib.log("request_fetch: " .. tostring(prefix))
 	update_prefix(prefix)
@@ -149,26 +175,35 @@ local function browse_entry(st, job)
 	lib.log("browse: start args=" .. tostring(job.args[1]) .. "/" .. tostring(job.args[2]))
 
 	M.bbm_bin = st.bbm_bin
+	M.default_bucket = st.default_bucket
 
 	if job.args[2] == "refresh" then
-		local entries, err = M.fetch_ls(M, M.prefix or "")
-		if err then
-			update_entries({ { name = "(" .. err .. ")", kind = "error", key = "" } })
+		if M.mode == "buckets" then
+			local entries, err = M.fetch_buckets(M)
+			if err then
+				update_entries({ { name = "(" .. err .. ")", kind = "error", key = "" } })
+			else
+				update_entries(entries)
+			end
 		else
-			update_entries(entries)
+			local entries, err = M.fetch_ls(M, M.prefix or "")
+			if err then
+				update_entries({ { name = "(" .. err .. ")", kind = "error", key = "" } })
+			else
+				update_entries(entries)
+			end
 		end
 		return
 	end
 
-	local start_prefix = st.browse_prefix or st.prefix or "bu/"
-	lib.log("browse: opening modal at prefix=" .. start_prefix)
-
-	M.prefix = start_prefix
-	M.entries = BROWSE_LOADING
+	M.mode = "buckets"
+	M.bucket = st.default_bucket
+	M.prefix = ""
+	M.entries = BUCKETS_LOADING
 	M.cursor = 0
 
 	toggle_ui()
-	update_entries(BROWSE_LOADING)
+	update_entries(BUCKETS_LOADING)
 
 	local fetch_tx, fetch_rx = ya.chan("mpsc")
 	local tx1, rx1 = ya.chan("mpsc")
@@ -184,13 +219,26 @@ local function browse_entry(st, job)
 				break
 			end
 			lib.log("loader: got request prefix=" .. tostring(prefix))
-			local entries, err = M.fetch_ls(M, prefix)
-			if err then
-				cfg.notify(cfg.notify_title, "bbm ls: " .. err, "error")
-				update_entries({ { name = "(" .. err .. ")", kind = "error", key = "" } })
+			if prefix == BROWSE_BUCKETS then
+				local entries, err = M.fetch_buckets(M)
+				if err then
+					cfg.notify(cfg.notify_title, "bbm bucket list: " .. err, "error")
+					update_entries({ { name = "(" .. err .. ")", kind = "error", key = "" } })
+				else
+					update_mode("buckets")
+					lib.log("loader: buckets=" .. tostring(#entries))
+					update_entries(entries)
+				end
 			else
-				lib.log("loader: entries=" .. tostring(#entries))
-				update_entries(entries)
+				local entries, err = M.fetch_ls(M, prefix)
+				if err then
+					cfg.notify(cfg.notify_title, "bbm ls: " .. err, "error")
+					update_entries({ { name = "(" .. err .. ")", kind = "error", key = "" } })
+				else
+					update_mode("objects")
+					lib.log("loader: entries=" .. tostring(#entries))
+					update_entries(entries)
+				end
 			end
 		end
 	end
@@ -230,16 +278,28 @@ local function browse_entry(st, job)
 			elseif run == "down" then
 				update_cursor(1)
 			elseif run == "back" then
-				local p = M.prefix or ""
-				if p ~= "" then
-					local parent = p:match("^(.*/)[^/]+/$") or ""
-					browse_request_fetch(parent, fetch_tx)
+				if M.mode == "buckets" then
+					-- already at bucket list
+				else
+					local p = M.prefix or ""
+					if p == "" then
+						browse_request_buckets(fetch_tx)
+					else
+						local parent = p:match("^(.*/)[^/]+/$") or ""
+						browse_request_fetch(parent, fetch_tx)
+					end
 				end
 			elseif run == "enter" then
 				local entry = active_entry()
-				if entry and entry.kind == "dir" then
+				if M.mode == "buckets" and entry and entry.kind == "bucket" then
+					update_bucket_name(entry.name)
+					local start_prefix = st.browse_prefix or st.prefix or ""
+					browse_request_fetch(start_prefix, fetch_tx)
+				elseif entry and entry.kind == "dir" then
 					browse_request_fetch(entry.key, fetch_tx)
 				end
+			elseif run == "buckets" then
+				browse_request_buckets(fetch_tx)
 			else
 				tx2:send(run)
 			end
@@ -252,7 +312,11 @@ local function browse_entry(st, job)
 			if run == "quit" then
 				break
 			elseif run == "refresh" then
-				browse_request_fetch(M.prefix or "", fetch_tx)
+				if M.mode == "buckets" then
+					browse_request_buckets(fetch_tx)
+				else
+					browse_request_fetch(M.prefix or "", fetch_tx)
+				end
 			elseif run == "pull" or run == "pull_decrypt" then
 				local entry = active_entry()
 				if not entry or entry.kind ~= "file" then
@@ -260,7 +324,8 @@ local function browse_entry(st, job)
 				else
 					local cwd = get_cwd()
 					local decrypt = run == "pull_decrypt"
-					lib.log("pull: key=" .. entry.key .. " decrypt=" .. tostring(decrypt))
+					cfg.bucket = M.bucket
+					lib.log("pull: bucket=" .. tostring(M.bucket) .. " key=" .. entry.key .. " decrypt=" .. tostring(decrypt))
 					local err = pull.pull_key(cfg, entry.key, cwd, decrypt)
 					if err then
 						cfg.notify(cfg.notify_title, err, "error")
@@ -274,7 +339,7 @@ local function browse_entry(st, job)
 		until not run
 	end
 
-	fetch_tx:send(start_prefix)
+	fetch_tx:send(BROWSE_BUCKETS)
 	lib.log("browse: joining loader/producer/consumers")
 	ya.join(loader, producer, consumer1, consumer2)
 	lib.log("browse: finished")
@@ -307,6 +372,7 @@ function M.entry(st, job)
 		bbm_bin = cfg.bbm_bin,
 		rclone_bin = cfg.rclone_bin,
 		mount = cfg.mount,
+		default_bucket = cfg.default_bucket,
 		notify = M.notify,
 	}
 	lib.log("main.entry: mount=" .. tostring(cfg.mount ~= nil))

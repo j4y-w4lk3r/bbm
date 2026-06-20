@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -27,6 +28,9 @@ type S3Backend struct {
 	client   *s3.Client
 	uploader *manager.Uploader
 	bucket   string
+	keyID    string
+	appKey   string
+	endpoint string
 }
 
 // NewS3 builds an S3Backend pointed at cfg.Endpoint with cfg.KeyID +
@@ -69,6 +73,9 @@ func NewS3(ctx context.Context, cfg *config.Config) (*S3Backend, error) {
 		client:   client,
 		uploader: uploader,
 		bucket:   cfg.Bucket,
+		keyID:    cfg.KeyID,
+		appKey:   cfg.AppKey,
+		endpoint: cfg.Endpoint,
 	}, nil
 }
 
@@ -172,7 +179,10 @@ func (b *S3Backend) Delete(ctx context.Context, key string) error {
 // us-east-1 is the only region where you MUST NOT specify a
 // LocationConstraint. For B2 / Wasabi / R2 the region argument always
 // matters and we always send it.
-func (b *S3Backend) CreateBucket(ctx context.Context, name, region string) error {
+// CreateBucket implements Backend.CreateBucket. When encrypt is true and
+// provider is B2, default SSE-B2 is enabled via the Native API after
+// the S3-compatible create succeeds.
+func (b *S3Backend) CreateBucket(ctx context.Context, name, region string, encrypt bool) error {
 	in := &s3.CreateBucketInput{Bucket: aws.String(name)}
 	if region != "" && region != "us-east-1" {
 		in.CreateBucketConfiguration = &types.CreateBucketConfiguration{
@@ -189,6 +199,11 @@ func (b *S3Backend) CreateBucket(ctx context.Context, name, region string) error
 			}
 		}
 		return wrapAWSErr("create bucket "+name, err)
+	}
+	if encrypt && strings.Contains(strings.ToLower(b.endpoint), "backblazeb2.com") {
+		if err := EnableB2BucketEncryption(ctx, b.keyID, b.appKey, name); err != nil {
+			return fmt.Errorf("bucket %q created but SSE-B2 setup failed: %w", name, err)
+		}
 	}
 	return nil
 }
